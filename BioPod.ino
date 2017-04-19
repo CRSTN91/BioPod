@@ -1,15 +1,18 @@
 #include <SoftTimer.h>
 
+#define _ledtimer 200 //Do not modify
 #define PIRsensor 2
 #define m11 11
 #define m12 12
-#define trigPin 10 //ultrasuoni
-#define echoPin 9 //ultrasuoni
-#define DELAY 500 //uso per valutare la lentezza del ciclo
-#define DEBUG // Print distance over serial
+#define trigPin 10  //ultrasuoni
+#define echoPin 9   //ultrasuoni
+#define DEBUG       //Enable serial messages
+#define COLORTIME 5000 //Period of one color in ms
 
-Task LEDtask(100, LEDmanager);
-Task FSMtask(500, FSMmanager);
+void LEDmanager(Task *me); //Declaring prototypes for a bug in arduino IDE
+void FSMmanager(Task *me); //https://github.com/prampec/arduino-softtimer/issues/6
+Task LEDtask(_ledtimer, LEDmanager);
+Task FSMtask(1000, FSMmanager);
 
 enum states {WAITPIR=0, ACTIVATE=1, ACTIVE=2, DEACTIVATE=3};  //States of the FSM
 int state = WAITPIR;
@@ -24,20 +27,20 @@ int calibrationTime = 30; //tempo di calibrazione del PIRsensor
 int minimumRange = 0; //minimum range needed from ultrasonic sensor
 int maximumRange = 100; //maximum range needed from the ultrasonic sensor
 
-// Color arrays
-int black [3]      = { 0,     0,   0 };
-int blu [3]        = { 130, 141, 156 };
-int lightBlu [3]   = { 163, 162, 169 };
-int pink  [3]      = { 211, 198, 176 };
-int beige [3]      = { 212, 189, 122 };
-int orange [3]     = { 228, 174, 68 };
-int Red [3]        = { 188, 89, 58 };
-int beigeLight[3]  = { 199, 169, 132 };
+// Color handling variables
+int colors[][3] = {{ 0,   0,   0 },   //black
+                   { 130, 141, 156 }, //blu
+                   { 163, 162, 169 }, //lightBlu
+                   { 211, 198, 176 }, //pink
+                   { 212, 189, 122 }, //beige
+                   { 228, 174, 68 },  //orange
+                   { 188, 89,  58 },  //red
+                   { 199, 169, 132 }};//beigeLight
+int nextcolor = 0;
+int numcolors = 0;
+int currentcolor[3] = {0,0,0};
+int colorStep[3] = {0,0,0};
 
-// Set initial color
-int redVal = black[0];
-int greenVal = black[1];
-int blueVal = black[2];
 unsigned long colourFadeTime = 0;
 unsigned long colourFadeDelay = 3000;  //Delay between fading
 int idletime = 100;
@@ -48,77 +51,6 @@ int repeat = 0;     // How many times should we loop before stopping? (0 for no 
 int j = 0;          // Loop counter for repeat
 int PIRpresence = 0;
 int startPIR = 0;
-int prevR = redVal;
-int prevG = greenVal;
-int prevB = blueVal;
-
-int calculateStep(int prevValue, int endValue) {
-  int step = endValue - prevValue; // What's the overall gap?
-  if (step) {                      // If its non-zero,
-    step = 1020/step;              // divide by 1020
-  }
-  return step;
-}
-
-/* The next function is calculateVal. When the loop value, i,
-*  reaches the step size appropriate for one of the
-*  colors, it increases or decreases the value of that color by 1.
-*  (R, G, and B are each calculated separately.)
-*/
-
-int calculateVal(int step, int val, int i) {
-
-  if ((step) && i % step == 0) { // If step is non-zero and its time to change a value,
-    if (step > 0) {              //   increment the value if step is positive...
-      val += 1;
-    }
-    else if (step < 0) {         //   ...or decrement it if step is negative
-      val -= 1;
-    }
-  }
-  // Defensive driving: make sure val stays in the range 0-255
-  if (val > 255) {
-    val = 255;
-  }
-  else if (val < 0) {
-    val = 0;
-  }
-  return val;
-}
-
-/* crossFade() converts the percentage colors to a
-*  0-255 range, then loops 1020 times, checking to see if
-*  the value needs to be updated each time, then writing
-*  the color values to the correct pins.
-*/
-
-void crossFade(int color[3]) {
-  // Convert to 0-255
-  int R = (color[0] * 255) / 100;
-  int G = (color[1] * 255) / 100;
-  int B = (color[2] * 255) / 100;
-
-  int stepR = calculateStep(prevR, R);
-  int stepG = calculateStep(prevG, G);
-  int stepB = calculateStep(prevB, B);
-
-  for (int i = 0; i <= 1020; i++) {
-    redVal = calculateVal(stepR, redVal, i);
-    greenVal = calculateVal(stepG, greenVal, i);
-    blueVal = calculateVal(stepB, blueVal, i);
-
-    analogWrite(redPin, redVal);   // Write current values to LED pins
-    analogWrite(greenPin, greenVal);
-    analogWrite(bluePin, blueVal);
-
-    delay(wait); // Pause for 'wait' milliseconds before resuming the loop
-  }
-  // Update current values for next loop
-  prevR = redVal;
-  prevG = greenVal;
-  prevB = blueVal;
-  delay(hold); // Pause for optional 'wait' milliseconds before resuming the loop
-}
 
 void setup() {
     pinMode(dirpin, OUTPUT);
@@ -129,10 +61,8 @@ void setup() {
     pinMode (redPin, OUTPUT);
     pinMode (greenPin, OUTPUT);
     pinMode (bluePin, OUTPUT);
-    
     SoftTimer.add(&LEDtask);
     SoftTimer.add(&FSMtask);
-    
     #ifdef DEBUG
     Serial.begin(9600);
     Serial.print("calibrating sensor ");
@@ -141,27 +71,67 @@ void setup() {
         #ifdef DEBUG
         Serial.print(".");
         #endif
-        delay(1000);
+        //delay(1000);
     }
     #ifdef DEBUG
     Serial.println(" done");
     Serial.println("SENSOR ACTIVE");
     #endif
+    //Color variables initialization
+    numcolors = sizeof(colors) / 3;
 }
 
 void LEDmanager(Task *me) {
-  
+    int delta = 0;
+    // Check if reached color target
+    bool reached = false;
+    for(int i=0; i<3; i++) {
+        delta = (currentcolor[i] - colors[nextcolor][i]);
+        delta = (delta > 0) ? delta : -delta; //Make the delta variable positive
+        if (delta < 1) reached = true;
+        else reached = false;
+    }
+    // If target reached, calculate new steps
+    if(reached) {
+        #ifdef DEBUG
+        Serial.print("Reached color ");
+        Serial.println(nextcolor);
+        #endif
+        int numsteps = COLORTIME/_ledtimer; //Number of times the LED thread will be called
+        #ifdef DEBUG
+        Serial.print(numsteps);
+        Serial.println(" steps until next color");
+        #endif
+        nextcolor = (nextcolor>(numcolors-2)) ? 0 : nextcolor + 1; //switch to next color
+        for(int i=0; i<3; i++) {
+            delta = (colors[nextcolor][i] - currentcolor[i]);
+            colorStep[i] = delta / numsteps;
+            // Make sure step is at least 1 to avoid never reaching color
+            if (colorStep[i] == 0 && delta != 0) colorStep[i] = (delta > 0) ? 1 : -1;
+        }
+        #ifdef DEBUG
+        Serial.print("New steps R:");
+        Serial.print(colorStep[0]);
+        Serial.print(" G:");
+        Serial.print(colorStep[1]);
+        Serial.print(" B:");
+        Serial.println(colorStep[2]);
+        #endif
+    }
+    // If target not reached, update the LED colors
+    else {
+        for(int i=0; i<3; i++) {
+            if(currentcolor[i] != colors[nextcolor][i])
+                currentcolor[i] += colorStep[i];
+        }
+        analogWrite(redPin, currentcolor[0]);
+        analogWrite(greenPin, currentcolor[1]);
+        analogWrite(bluePin, currentcolor[2]);
+    }
 }
 
 void FSMmanager(Task *me) {
     // Code to execute independently of the state
-    crossFade(blu);  // Main program: list the order of crossfades
-    crossFade(lightBlu);
-    crossFade(pink);
-    crossFade(beige);
-    crossFade(orange);
-    crossFade(Red);
-    crossFade(beigeLight);
     #ifdef DEBUG
     Serial.print("state: ");
     Serial.println(state);
@@ -183,7 +153,7 @@ void FSMmanager(Task *me) {
               }
             }
             // Code for the state
-            sleep(idletime);
+            delay(idletime);
             break;
 
         case ACTIVATE:
@@ -199,7 +169,7 @@ void FSMmanager(Task *me) {
             break;
         case ACTIVE:
             // Condition to deactivate
-            sleep(idletime);
+            delay(idletime);
             break;
 
         case DEACTIVATE:
@@ -209,7 +179,7 @@ void FSMmanager(Task *me) {
             digitalWrite(trigPin, HIGH);
             delay(200);
             digitalWrite(trigPin, LOW);
-            duration = pulseIn(echoPin, HIGH);
+            int duration = pulseIn(echoPin, HIGH);
             int i;
             digitalWrite(dirpin, HIGH);     // Set the direction.
             delay(10);
@@ -218,6 +188,7 @@ void FSMmanager(Task *me) {
             digitalWrite(steppin, HIGH); // "Rising Edge" so the easydriver knows to when to step.
             delayMicroseconds(speed);
             break;
+            }
         }
     }
-}
+}}
