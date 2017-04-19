@@ -38,8 +38,8 @@ int colors[][3] = {{ 0,   0,   0 },   //black
                    { 199, 169, 132 }};//beigeLight
 int nextcolor = 0;
 int numcolors = 0;
-int currentcolor[3] = {0,0,0};
-int colorStep[3] = {0,0,0};
+float currentcolor[3] = {0,0,0};
+float colorStep[3] = {0,0,0};
 
 unsigned long colourFadeTime = 0;
 unsigned long colourFadeDelay = 3000;  //Delay between fading
@@ -65,20 +65,28 @@ void setup() {
     SoftTimer.add(&FSMtask);
     #ifdef DEBUG
     Serial.begin(9600);
+    #endif
+    /* Temporarily removed annoying calibration delay
+    #ifdef DEBUG
     Serial.print("calibrating sensor ");
     #endif
     for(int i = 0; i < calibrationTime; i++){
         #ifdef DEBUG
         Serial.print(".");
         #endif
-        //delay(1000);
-    }
+        delay(1000);
+    }*/
     #ifdef DEBUG
     Serial.println(" done");
     Serial.println("SENSOR ACTIVE");
     #endif
     //Color variables initialization
-    numcolors = sizeof(colors) / 3;
+    numcolors = sizeof(colors) / 6;
+    #ifdef DEBUG
+        Serial.print("Cycling between ");
+        Serial.print(numcolors);
+        Serial.println(" colors");
+    #endif
 }
 
 void LEDmanager(Task *me) {
@@ -105,9 +113,7 @@ void LEDmanager(Task *me) {
         nextcolor = (nextcolor>(numcolors-2)) ? 0 : nextcolor + 1; //switch to next color
         for(int i=0; i<3; i++) {
             delta = (colors[nextcolor][i] - currentcolor[i]);
-            colorStep[i] = delta / numsteps;
-            // Make sure step is at least 1 to avoid never reaching color
-            if (colorStep[i] == 0 && delta != 0) colorStep[i] = (delta > 0) ? 1 : -1;
+            colorStep[i] = (float)delta / (float)numsteps;
         }
         #ifdef DEBUG
         Serial.print("New steps R:");
@@ -124,9 +130,9 @@ void LEDmanager(Task *me) {
             if(currentcolor[i] != colors[nextcolor][i])
                 currentcolor[i] += colorStep[i];
         }
-        analogWrite(redPin, currentcolor[0]);
-        analogWrite(greenPin, currentcolor[1]);
-        analogWrite(bluePin, currentcolor[2]);
+        analogWrite(redPin, (int)currentcolor[0]);
+        analogWrite(greenPin, (int)currentcolor[1]);
+        analogWrite(bluePin, (int)currentcolor[2]);
     }
 }
 
