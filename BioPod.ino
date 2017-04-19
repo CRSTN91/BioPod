@@ -1,3 +1,5 @@
+#include <SoftTimer.h>
+
 #define PIRsensor 2
 #define m11 11
 #define m12 12
@@ -6,6 +8,8 @@
 #define DELAY 500 //uso per valutare la lentezza del ciclo
 #define DEBUG // Print distance over serial
 
+Task LEDtask(100, LEDmanager);
+Task FSMtask(500, FSMmanager);
 
 enum states {WAITPIR=0, ACTIVATE=1, ACTIVE=2, DEACTIVATE=3};  //States of the FSM
 int state = WAITPIR;
@@ -34,7 +38,7 @@ int beigeLight[3]  = { 199, 169, 132 };
 int redVal = black[0];
 int greenVal = black[1];
 int blueVal = black[2];
-unsigned long colourFadeTime = 0;  //
+unsigned long colourFadeTime = 0;
 unsigned long colourFadeDelay = 3000;  //Delay between fading
 int idletime = 100;
 int wait = 10;      // 10ms internal crossFade delay; increase for slower fades
@@ -117,7 +121,6 @@ void crossFade(int color[3]) {
 }
 
 void setup() {
-
     pinMode(dirpin, OUTPUT);
     pinMode(steppin, OUTPUT);
     pinMode(PIRsensor, INPUT);
@@ -126,37 +129,46 @@ void setup() {
     pinMode (redPin, OUTPUT);
     pinMode (greenPin, OUTPUT);
     pinMode (bluePin, OUTPUT);
+    
+    SoftTimer.add(&LEDtask);
+    SoftTimer.add(&FSMtask);
+    
+    #ifdef DEBUG
+    Serial.begin(9600);
     Serial.print("calibrating sensor ");
-   for(int i = 0; i < calibrationTime; i++){
-     Serial.print(".");
-     delay(1000);
-     }
-   Serial.println(" done");
-   Serial.println("SENSOR ACTIVE");
-   delay(50);
-   #ifdef DEBUG
-   Serial.begin(9600);
-   #endif
+    #endif
+    for(int i = 0; i < calibrationTime; i++){
+        #ifdef DEBUG
+        Serial.print(".");
+        #endif
+        delay(1000);
+    }
+    #ifdef DEBUG
+    Serial.println(" done");
+    Serial.println("SENSOR ACTIVE");
+    #endif
 }
 
-void loop() {
+void LEDmanager(Task *me) {
+  
+}
 
+void FSMmanager(Task *me) {
     // Code to execute independently of the state
-     crossFade(blu);  // Main program: list the order of crossfades
-     crossFade(lightBlu);
-     crossFade(pink);
-     crossFade(beige);
-     crossFade(orange);
-     crossFade(Red);
-     crossFade(beigeLight);
+    crossFade(blu);  // Main program: list the order of crossfades
+    crossFade(lightBlu);
+    crossFade(pink);
+    crossFade(beige);
+    crossFade(orange);
+    crossFade(Red);
+    crossFade(beigeLight);
     #ifdef DEBUG
     Serial.print("state: ");
     Serial.println(state);
     #endif
 
     // Code for each state
-    /*
-      switch(state)
+    switch(state)
     {
         case WAITPIR:
             // Activation condition
@@ -206,8 +218,6 @@ void loop() {
             digitalWrite(steppin, HIGH); // "Rising Edge" so the easydriver knows to when to step.
             delayMicroseconds(speed);
             break;
+        }
     }
-    delay(DELAY);
-}
-*/
 }
