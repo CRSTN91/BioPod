@@ -7,7 +7,9 @@
 #define trigPin 10  //ultrasuoni
 #define echoPin 9   //ultrasuoni
 #define DEBUG       //Enable serial messages
+//#define COLORDEBUG
 #define COLORTIME 5000 //Period of one color in ms
+#define TURNOFFDISTANCE 20
 
 void LEDmanager(Task *me); //Declaring prototypes for a bug in arduino IDE
 void FSMmanager(Task *me); //https://github.com/prampec/arduino-softtimer/issues/6
@@ -16,7 +18,6 @@ Task FSMtask(1000, FSMmanager);
 
 enum states {WAITPIR=0, ACTIVATE=1, ACTIVE=2, DEACTIVATE=3};  //States of the FSM
 int state = WAITPIR;
-int PIRPin = 2;
 int dirpin = 11; // direzione motore
 int steppin = 12; //passi motore
 int redPin = 3;
@@ -43,14 +44,14 @@ float colorStep[3] = {0,0,0};
 
 unsigned long colourFadeTime = 0;
 unsigned long colourFadeDelay = 3000;  //Delay between fading
-int idletime = 100;
 int wait = 10;      // 10ms internal crossFade delay; increase for slower fades
 int hold = 0;       // Optional hold when a color is complete, before the next crossFade
 int loopCount = 60; // How often should DEBUG report?
 int repeat = 0;     // How many times should we loop before stopping? (0 for no stop)
 int j = 0;          // Loop counter for repeat
-int PIRpresence = 0;
-int startPIR = 0;
+int USpresence = 0;   //Variable to mark if ultrasonic sensor has detected something
+int PIRcount = 0;
+int startUS = 0;
 
 void setup() {
     pinMode(dirpin, OUTPUT);
@@ -82,7 +83,7 @@ void setup() {
     #endif
     //Color variables initialization
     numcolors = sizeof(colors) / 6;
-    #ifdef DEBUG
+    #ifdef COLORDEBUG
         Serial.print("Cycling between ");
         Serial.print(numcolors);
         Serial.println(" colors");
@@ -101,12 +102,12 @@ void LEDmanager(Task *me) {
     }
     // If target reached, calculate new steps
     if(reached) {
-        #ifdef DEBUG
+        #ifdef COLORDEBUG
         Serial.print("Reached color ");
         Serial.println(nextcolor);
         #endif
         int numsteps = COLORTIME/_ledtimer; //Number of times the LED thread will be called
-        #ifdef DEBUG
+        #ifdef COLORDEBUG
         Serial.print(numsteps);
         Serial.println(" steps until next color");
         #endif
@@ -115,7 +116,7 @@ void LEDmanager(Task *me) {
             delta = (colors[nextcolor][i] - currentcolor[i]);
             colorStep[i] = (float)delta / (float)numsteps;
         }
-        #ifdef DEBUG
+        #ifdef COLORDEBUG
         Serial.print("New steps R:");
         Serial.print(colorStep[0]);
         Serial.print(" G:");
@@ -136,6 +137,19 @@ void LEDmanager(Task *me) {
     }
 }
 
+int readDistance() {
+    // Give a short LOW pulse beforehand to ensure a clean HIGH pulse:
+    digitalWrite(trigPin, LOW);
+    delayMicroseconds(2);
+    digitalWrite(trigPin, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(trigPin, LOW);
+    long duration = pulseIn(echoPin,HIGH);
+    // convert the time into a distance
+    long distanceCm = duration / 29.1 / 2 ;
+return (int)distanceCm;
+}
+
 void FSMmanager(Task *me) {
     // Code to execute independently of the state
     #ifdef DEBUG
@@ -143,23 +157,18 @@ void FSMmanager(Task *me) {
     Serial.println(state);
     #endif
 
+    int val = digitalRead(PIRsensor);
+    Serial.println(val);
+
     // Code for each state
     switch(state)
     {
         case WAITPIR:
             // Activation condition
-            if(!PIRpresence){
-              if(digitalRead(PIRsensor)){
-                PIRpresence = 1;
-                startPIR = millis();
-              }
-            else{
-              if ((millis() - startPIR>5000) && digitalRead(PIRsensor)){
-                state=ACTIVATE;
-              }
-            }
+            if(digitalRead(PIRsensor)) PIRcount++;
+            else PIRcount = 0;
+            if(PIRcount > 5) state = ACTIVATE;
             // Code for the state
-            delay(idletime);
             break;
 
         case ACTIVATE:
@@ -175,7 +184,16 @@ void FSMmanager(Task *me) {
             break;
         case ACTIVE:
             // Condition to deactivate
-            delay(idletime);
+            if(!USpresence){
+                if(readDistance() < TURNOFFDISTANCE){
+                    USpresence = 1;
+                    startUS = millis();
+                }
+            else{
+                if ((millis() - startUS>3000) && (readDistance() < TURNOFFDISTANCE)){
+                    state=DEACTIVATE;
+                }
+            }
             break;
 
         case DEACTIVATE:
@@ -197,4 +215,5 @@ void FSMmanager(Task *me) {
             }
         }
     }
-}}
+}
+}
