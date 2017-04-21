@@ -49,9 +49,9 @@ int hold = 0;       // Optional hold when a color is complete, before the next c
 int loopCount = 60; // How often should DEBUG report?
 int repeat = 0;     // How many times should we loop before stopping? (0 for no stop)
 int j = 0;          // Loop counter for repeat
-int USpresence = 0;   //Variable to mark if ultrasonic sensor has detected something
+int detect = 0;
 int PIRcount = 0;
-int startUS = 0;
+int UScount = 0;
 
 void setup() {
     pinMode(dirpin, OUTPUT);
@@ -156,64 +156,58 @@ void FSMmanager(Task *me) {
     Serial.print("state: ");
     Serial.println(state);
     #endif
-
-    int val = digitalRead(PIRsensor);
-    Serial.println(val);
-
     // Code for each state
     switch(state)
     {
         case WAITPIR:
             // Activation condition
-            if(digitalRead(PIRsensor)) PIRcount++;
+            detect = digitalRead(PIRsensor);
+            #ifdef DEBUG
+            Serial.print("PIR: ");
+            Serial.println(detect);
+            #endif
+            if(detect) PIRcount++;
             else PIRcount = 0;
-            if(PIRcount > 5) state = ACTIVATE;
-            // Code for the state
+            if(PIRcount > 5) {
+                state = ACTIVATE;
+                PIRcount = 0;
+            }
             break;
 
         case ACTIVATE:
-            // End motor movement condition
-
-            int i;
             digitalWrite(dirpin, LOW);     // Set the direction.
             delay(10);
-            for (i = 0; i<10000; i++) {   // Iterate for 10000 microsteps.
-            digitalWrite(steppin, LOW);   // This LOW to HIGH change is what creates the
-            digitalWrite(steppin, HIGH);  // "Rising Edge" so the easydriver knows to when to step.
-            delayMicroseconds(speed);
+            for (int i = 0; i<10000; i++) {   // Iterate for 10000 microsteps.
+                digitalWrite(steppin, LOW);   // This LOW to HIGH change is what creates the
+                digitalWrite(steppin, HIGH);  // "Rising Edge" so the easydriver knows to when to step.
+                delayMicroseconds(speed);
+            }
+            // End motor movement condition
+            state = ACTIVE;
             break;
+
         case ACTIVE:
             // Condition to deactivate
-            if(!USpresence){
-                if(readDistance() < TURNOFFDISTANCE){
-                    USpresence = 1;
-                    startUS = millis();
-                }
-            else{
-                if ((millis() - startUS>3000) && (readDistance() < TURNOFFDISTANCE)){
-                    state=DEACTIVATE;
-                }
-            }
+            detect = readDistance() < TURNOFFDISTANCE;
+            #ifdef DEBUG
+            Serial.print("ultrasonic: ");
+            Serial.println(detect);
+            #endif
+            if(detect) UScount++;
+            else UScount = 0;
+            if(UScount > 3) state = DEACTIVATE;
             break;
 
         case DEACTIVATE:
-            // End motor movement condition
-            digitalWrite(trigPin, LOW);
-            delayMicroseconds(2);
-            digitalWrite(trigPin, HIGH);
-            delay(200);
-            digitalWrite(trigPin, LOW);
-            int duration = pulseIn(echoPin, HIGH);
-            int i;
             digitalWrite(dirpin, HIGH);     // Set the direction.
             delay(10);
-            for (i = 0; i=10000; i++) {     // Iterate for 10000 microsteps.
-            digitalWrite(steppin, LOW);  // This LOW to HIGH change is what creates the
-            digitalWrite(steppin, HIGH); // "Rising Edge" so the easydriver knows to when to step.
-            delayMicroseconds(speed);
-            break;
+            for (int i = 0; i<10000; i++) {     // Iterate for 10000 microsteps.
+                digitalWrite(steppin, LOW);  // This LOW to HIGH change is what creates the
+                digitalWrite(steppin, HIGH); // "Rising Edge" so the easydriver knows to when to step.
+                delayMicroseconds(speed);
             }
-        }
+            // End motor movement condition
+            state = WAITPIR;
+            break;
     }
-}
 }
